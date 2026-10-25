@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS · Diagnóstico</title>
+<style>
+:root{--bg:#050b18;--panel:#0a1a30;--line:#0f3a5c;--cyan:#33e0ff;--text:#d6f3ff;--mut:#7fa6bd;--ok:#4cf2a0;--bad:#ff6b6b;--warn:#ffc857}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,sans-serif}
+h1{font-size:1.25rem;margin:0 0 4px;color:var(--cyan)}
+p.sub{margin:0 0 16px;color:var(--mut);font-size:.9rem}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+h2{font-size:1rem;margin:0 0 8px;color:var(--cyan)}
+button{width:100%;padding:14px;border:1px solid var(--cyan);border-radius:10px;background:transparent;color:var(--cyan);font-size:1rem;margin-top:8px}
+button:active{background:#0c3a52}
+pre{white-space:pre-wrap;word-break:break-word;margin:8px 0 0;font:.85rem/1.4 ui-monospace,monospace;color:var(--text)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+</style>
+</head>
+<body>
+<h1>JARVIS · Diagnóstico do aparelho</h1>
+<p class="sub">Toque em cada teste e me envie o texto que aparecer.</p>
+
+<section>
+<h2>1. Aparelho e navegador</h2>
+<pre id="info">Carregando…</pre>
+</section>
+
+<section>
+<h2>2. Reconhecimento de voz (pt-BR)</h2>
+<p class="sub">Primeiro teste com internet. Depois ative o modo avião e repita.</p>
+<button id="btnRec">Falar agora</button>
+<pre id="rec">Aguardando.</pre>
+</section>
+
+<section>
+<h2>3. Voz falada (pt-BR)</h2>
+<button id="btnTts">Ouvir uma frase</button>
+<pre id="tts">Aguardando.</pre>
+</section>
+
+<section>
+<h2>4. WebGPU (IA local)</h2>
+<button id="btnGpu">Testar WebGPU</button>
+<pre id="gpu">Aguardando.</pre>
+</section>
+
+<script>
+const $=id=>document.getElementById(id);
+const cls=(t,c)=>'<span class="'+c+'">'+t+'</span>';
+
+function info(){
+  const ua=navigator.userAgent;
+  const m=ua.match(/Chrome\/([\d.]+)/);
+  const l=[
+    'Navegador: '+(m?'Chrome '+m[1]:'não é Chrome ('+ua+')'),
+    'Modelo no navegador: '+((ua.match(/;\s*([^;)]+)\s+Build/)||[])[1]||'oculto'),
+    'Conexão agora: '+(navigator.onLine?'online':'offline'),
+    'Contexto seguro (https): '+(window.isSecureContext?'sim':'NÃO'),
+    'Endereço da página: '+location.protocol,
+    'Memória informada (máx. 8): '+(navigator.deviceMemory||'indisponível')+' GB',
+    'Núcleos: '+(navigator.hardwareConcurrency||'?'),
+    'SpeechRecognition: '+((window.SpeechRecognition||window.webkitSpeechRecognition)?'existe':'NÃO existe'),
+    'speechSynthesis: '+(window.speechSynthesis?'existe':'NÃO existe'),
+    'WebGPU: '+(navigator.gpu?'existe':'NÃO existe')
+  ];
+  $('info').textContent=l.join('\n');
+}
+info();
+
+$('btnRec').onclick=()=>{
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const out=$('rec');
+  if(!SR){out.innerHTML=cls('Este navegador não tem reconhecimento de voz.','bad');return;}
+  const r=new SR();
+  r.lang='pt-BR';r.interimResults=false;r.maxAlternatives=1;
+  const modo=navigator.onLine?'online':'offline (modo avião)';
+  out.textContent='Ouvindo… fale uma frase curta. Conexão: '+modo;
+  r.onresult=e=>{
+    const a=e.results[0][0];
+    out.innerHTML=cls('Funcionou ('+modo+').','ok')+'\nTexto: '+a.transcript+'\nConfiança: '+Math.round(a.confidence*100)+'%';
+  };
+  r.onerror=e=>{
+    const dica={'not-allowed':'Permissão do microfone negada. Libere em Configurações do site.','no-speech':'Não ouvi nada. Tente de novo.','network':'Sem rede ou sem pacote offline para o idioma.','language-not-supported':'Idioma não suportado neste modo.','audio-capture':'Microfone não encontrado.','service-not-allowed':'Serviço de voz bloqueado.'}[e.error]||'';
+    out.innerHTML=cls('Erro: '+e.error+' ('+modo+')','bad')+(dica?'\n'+dica:'');
+  };
+  r.onend=()=>{if(out.textContent.startsWith('Ouvindo'))out.innerHTML=cls('Terminou sem resultado.','warn');};
+  try{r.start();}catch(err){out.innerHTML=cls('Falha ao iniciar: '+err.message,'bad');}
+};
+
+function vozes(){return speechSynthesis.getVoices().filter(v=>v.lang&&v.lang.toLowerCase().replace('_','-').startsWith('pt'));}
+$('btnTts').onclick=()=>{
+  const out=$('tts');
+  if(!window.speechSynthesis){out.innerHTML=cls('Sem speechSynthesis.','bad');return;}
+  const go=()=>{
+    const v=vozes();
+    const br=v.find(x=>x.lang.toLowerCase().replace('_','-')==='pt-br')||v[0];
+    const lista=v.length?v.map(x=>'- '+x.name+' ['+x.lang+'] '+(x.localService?'local':'online')).join('\n'):'Nenhuma voz em português encontrada.';
+    const u=new SpeechSynthesisUtterance('Olá, eu sou o Jarvis. Sistemas online.');
+    u.lang='pt-BR';
+    if(br)u.voice=br;
+    u.onerror=e=>{out.innerHTML=cls('Erro ao falar: '+e.error,'bad')+'\n'+lista;};
+    out.innerHTML=(br?cls('Falando com: '+br.name+' ('+(br.localService?'voz local, deve funcionar offline':'voz online')+')','ok'):cls('Sem voz pt-BR. Instale no Google Text-to-Speech.','warn'))+'\n'+lista;
+    speechSynthesis.cancel();speechSynthesis.speak(u);
+  };
+  if(speechSynthesis.getVoices().length)go();else{speechSynthesis.onvoiceschanged=go;setTimeout(go,800);}
+};
+
+$('btnGpu').onclick=async()=>{
+  const out=$('gpu');
+  if(!navigator.gpu){out.innerHTML=cls('WebGPU não existe neste navegador.','bad');return;}
+  out.textContent='Consultando a GPU…';
+  try{
+    const ad=await navigator.gpu.requestAdapter();
+    if(!ad){out.innerHTML=cls('Nenhum adaptador de GPU disponível.','bad');return;}
+    const i=ad.info||(ad.requestAdapterInfo?await ad.requestAdapterInfo():{});
+    const mb=n=>Math.round(n/1048576)+' MB';
+    out.innerHTML=cls('WebGPU disponível.','ok')+'\nGPU: '+(i.vendor||'?')+' '+(i.architecture||'')+' '+(i.description||'')+
+      '\nMaior buffer: '+mb(ad.limits.maxBufferSize)+
+      '\nMaior buffer de armazenamento: '+mb(ad.limits.maxStorageBufferBindingSize)+
+      '\nShader f16: '+(ad.features.has('shader-f16')?'sim':'não');
+  }catch(e){out.innerHTML=cls('Erro: '+e.message,'bad');}
+};
+</script>
+</body>
+</html>
